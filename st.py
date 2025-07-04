@@ -12,7 +12,7 @@ import boto3
 from langchain_aws import ChatBedrock
 from concurrent.futures import ThreadPoolExecutor
 
-load_dotenv()
+load_dotenv(".env")
 AWS_KEY = os.getenv("aws_access_key")
 AWS_SECRET = os.getenv("aws_secret_access_key")
 
@@ -128,22 +128,34 @@ if uploaded_files:
     with col_mid:
         if st.button("🔍 Start Extraction", use_container_width=True):
             all_extracted_data = []
-            with st.spinner("Extracting..."):
-                with ThreadPoolExecutor(max_workers=4) as executor:
-                    futures = []
-                    for file in uploaded_files:
-                        suffix = file.name.split('.')[-1].lower()
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp:
-                            tmp.write(file.getvalue())
-                            tmp_path = tmp.name
+            total_tasks = 0
+            tasks = []
 
-                        if suffix == "pdf":
-                            images = process_pdf(tmp_path)
-                        else:
-                            images = [tmp_path]
+            # Count total tasks for progress bar
+            for file in uploaded_files:
+                suffix = file.name.split('.')[-1].lower()
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp:
+                    tmp.write(file.getvalue())
+                    tmp_path = tmp.name
 
-                        for idx, img in enumerate(images):
-                            futures.append(executor.submit(process_page_background, img, idx, file.name, client_bedrock))
+                if suffix == "pdf":
+                    images = process_pdf(tmp_path)
+                else:
+                    images = [tmp_path]
+                total_tasks += len(images)
+                tasks.append((file.name, images))
+
+            # Initialize progress bar
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
+            completed_tasks = 0
+
+            # Process tasks with progress updates
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
+                for file_name, images in tasks:
+                    for idx, img in enumerate(images):
+                        futures.append(executor.submit(process_page_background, img, idx, file_name, client_bedrock))
 
                 for future in futures:
                     result = future.result()
@@ -151,7 +163,14 @@ if uploaded_files:
                         all_extracted_data.append(result)
                     else:
                         st.warning(result["error_message"])
+                    
+                    completed_tasks += 1
+                    progress = completed_tasks / total_tasks
+                    progress_bar.progress(min(progress, 1.0))
+                    progress_text.text(f"Extracting... {completed_tasks}/{total_tasks} images processed")
 
+            progress_bar.empty()
+            progress_text.empty()
             st.session_state.extracted = all_extracted_data
             st.success("✅ Extraction complete!")
 
@@ -192,7 +211,16 @@ if "extracted" in st.session_state:
         if vin_query:
             filtered_df = filtered_df[filtered_df["VIN"].str.contains(vin_query.upper(), na=False)]
 
-        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            filtered_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "File": st.column_config.TextColumn("File", width="small"),
+                "Page": st.column_config.NumberColumn("Page", width="small"),
+                "VIN": st.column_config.TextColumn("VIN", width="large", help="Vehicle Identification Number")
+            }
+        )
 
         csv = filtered_df.to_csv(index=False)
         xlsx_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
@@ -238,18 +266,20 @@ if "extracted" in st.session_state:
             unsafe_allow_html=True
         )
         
-        # Display image with zoom
-        
-            
 
-        nav1, nav2, nav3 = st.columns([1, 3, 1])
+        nav1, nav2, nav3 = st.columns([1, 3.8, 1])
         with nav1:
             if st.button("⬅️ Previous Image"):
                 st.session_state.slide_index = (idx - 1) % total
         with nav3:
             if st.button("➡️ Next Image"):
                 st.session_state.slide_index = (idx + 1) % total
+
+
+        # Display image with zoom
         with st.container():
             st.markdown(f"<div class='zoom-container'>", unsafe_allow_html=True)
-            st.image(image_info['image_path'], use_column_width=False, width=int(935 * zoom_level))
+            st.image(image_info['image_path'], use_container_width=False, width=int(950 * zoom_level))
             st.markdown("</div>", unsafe_allow_html=True)
+
+        
