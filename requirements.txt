@@ -6,6 +6,6 @@ pillow
 streamlit
 python-dotenv
 pypdfium2
-opencv-python
+opencv-python-headless==4.11.0.86
 fpdf
 openpyxl
