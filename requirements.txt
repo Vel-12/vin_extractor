@@ -1,0 +1,11 @@
+boto3
+langchain
+langchain-community
+langchain-aws
+pillow
+streamlit
+python-dotenv
+pypdfium2
+opencv-python
+fpdf
+openpyxl
